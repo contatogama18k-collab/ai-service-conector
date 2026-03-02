@@ -4,7 +4,6 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
-
 app = Flask(__name__)
 
 API_KEY = os.getenv("WATSONX_API_KEY")
@@ -16,71 +15,60 @@ def webhook_route():
     if request.method == 'GET':
         return "Webhook RAG está Online!", 200
 
-    # 1. DEBUGS INICIAIS
+    # Pega o JSON de forma bruta
     data = request.get_json(force=True, silent=True) or {}
-    print(f"--- [DEBUG] PAYLOAD RECEBIDO DO WATSON: {data} ---")
-
-    # Tenta capturar o input de todas as formas possíveis (Raiz ou Parameters)
-    user_message = data.get("input") or data.get("parameters", {}).get("input")
     
-    # Converte para string e limpa espaços (evita NoneType error)
+    # --- BUSCA EXAUSTIVA PELO INPUT ---
+    # Tenta em todos os lugares que o Watson costuma esconder o texto
+    user_message = (
+        data.get("input") or 
+        data.get("parameters", {}).get("input") or 
+        data.get("text") or 
+        data.get("message") or
+        data.get("parameters", {}).get("text")
+    )
+    
+    # Garante que seja string e remove espaços
     user_message = str(user_message or "").strip()
-    print(f"--- [DEBUG] MENSAGEM EXTRAIDA: '{user_message}' ---")
+
+    # Se ainda estiver vazio, vamos tentar pegar o texto da "utterance" do Watson
+    if not user_message and "text" in data:
+        user_message = data["text"]
 
     if not user_message:
-        print("--- [ALERTA] Input vazio detectado! Verifique o mapeamento no Watson Assistant ---")
-        return jsonify({"response": "Erro: O Webhook recebeu um texto vazio. Verifique o mapeamento no Watson."}), 200
+        return jsonify({"response": "Erro: O Webhook não encontrou o campo 'input'. Verifique o mapeamento no Watson Assistant."}), 200
 
     try:
-        # 2. AUTENTICAÇÃO IAM
+        # Autenticação IBM
         iam_res = requests.post(
             "https://iam.cloud.ibm.com/identity/token", 
             data={"grant_type": "urn:ibm:params:oauth:grant-type:apikey", "apikey": API_KEY},
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
-        iam_res.raise_for_status()
         access_token = iam_res.json().get("access_token")
 
-        # 3. CHAMADA WATSONX (Formato Exato do seu Deployment)
+        # Payload para WatsonX (Role vazia conforme seu deployment)
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        
-        # Usando role vazia conforme o exemplo de sucesso do seu Prompt Lab
         payload = {
-            "messages": [
-                {
-                    "role": "", 
-                    "content": user_message
-                }
-            ]
+            "messages": [{"role": "", "content": user_message}]
         }
-        
-        print(f"--- [DEBUG] ENVIANDO PARA IBM: {payload} ---")
 
         response = requests.post(URL_WATSONX, headers=headers, json=payload)
         result = response.json()
         
-        print(f"--- [DEBUG] RESPOSTA BRUTA DA IBM: {result} ---")
-
-        # 4. EXTRAÇÃO DA RESPOSTA
-        # Ajustado para procurar em 'choices' (padrão OpenAI/WatsonX moderno) ou 'messages'
+        # Extração da resposta
         assistant_reply = ""
         if 'choices' in result:
             assistant_reply = result['choices'][0]['message']['content']
         elif 'messages' in result:
             assistant_reply = result['messages'][0]['content']
         else:
-            assistant_reply = str(result)
+            assistant_reply = "Não foi possível extrair a resposta do WatsonX."
 
-        print(f"--- [DEBUG] RESPOSTA FINAL FORMATADA: {assistant_reply} ---")
-
-        return jsonify({
-            "response": assistant_reply,
-            "context": [{"role": "assistant", "content": assistant_reply}]
-        })
+        return jsonify({"response": assistant_reply})
 
     except Exception as e:
-        print(f"--- [ERRO CRÍTICO]: {str(e)} ---")
-        return jsonify({"response": f"Erro interno: {str(e)}"}), 200
+        return jsonify({"response": f"Erro interno no conector: {str(e)}"}), 200
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
