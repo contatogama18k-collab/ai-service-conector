@@ -49,6 +49,12 @@ def webhook_route():
             "response": f"Erro: Input vazio. Debug do que chegou: {debug_info}"
         }), 200
     
+    if not user_message:
+        return jsonify({
+            "response": f"DEBUG DO CONECTOR: O Watson mandou essas chaves: {list(data.keys())}. "
+                        f"Se 'parameters' estiver acima, verifique se dentro dele tem o 'input'. "
+                        f"JSON recebido: {str(data)[:200]}"
+        }), 200
 
     try:
         # Autenticação IBM
