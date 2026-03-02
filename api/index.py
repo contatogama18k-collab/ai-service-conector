@@ -66,25 +66,33 @@ def webhook_route():
         access_token = iam_res.json().get("access_token")
 
         # Payload para WatsonX (Role vazia conforme seu deployment)
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        payload = {
-            "messages": [{"role": "", "content": user_message}]
+# 2. O Payload CORRETO (Com role 'user')
+        headers = {
+            "Authorization": f"Bearer {access_token}", 
+            "Content-Type": "application/json"
         }
-
-        response = requests.post(URL_WATSONX, headers=headers, json=payload)
-# ... (depois de response = requests.post)
-        result = response.json()
         
-        # Se a IBM responder algo que não entendemos, mostramos o JSON inteiro
+        payload = {
+            "messages": [
+                {
+                    "role": "user",  # A IBM exige 'user' aqui, não pode ser vazio
+                    "content": user_message
+                }
+            ]
+        }
+        
+        # 3. Chamada (Usando a URL de AI Service que você tem)
+        response = requests.post(URL_WATSONX, headers=headers, json=payload)
+        result = response.json()
+
+        # 4. Extração da Resposta (Adicionando o campo 'choices' que a IBM usa no Chat)
         if 'choices' in result:
             assistant_reply = result['choices'][0]['message']['content']
         elif 'results' in result:
             assistant_reply = result['results'][0]['generated_text']
-        elif 'messages' in result:
-            assistant_reply = result['messages'][0]['content']
         else:
-            # ESTE É O PONTO CHAVE: Mostra o que a IBM realmente mandou
-            assistant_reply = f"ERRO DE FORMATO IBM: {str(result)}"
+            # Se der erro de novo, o Watson vai nos mostrar o porquê
+            assistant_reply = f"Erro na estrutura IBM: {str(result)}"
 
         return jsonify({"response": assistant_reply})
 
