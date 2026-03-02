@@ -3,12 +3,10 @@ from flask import Flask, request, jsonify
 import requests
 from dotenv import load_dotenv
 
-# Carrega as variáveis do arquivo .env
 load_dotenv()
 
 app = Flask(__name__)
 
-# Configurações via Variáveis de Ambiente
 API_KEY = os.getenv("WATSONX_API_KEY")
 URL_WATSONX = os.getenv("WATSONX_URL")
 
@@ -18,15 +16,23 @@ def webhook_route():
     if request.method == 'GET':
         return "Webhook RAG está Online!", 200
 
-    data = request.get_json(silent=True) or {}
-    user_message = data.get("input", "")
-    context = data.get("context", [])
+    # 1. DEBUGS INICIAIS
+    data = request.get_json(force=True, silent=True) or {}
+    print(f"--- [DEBUG] PAYLOAD RECEBIDO DO WATSON: {data} ---")
+
+    # Tenta capturar o input de todas as formas possíveis (Raiz ou Parameters)
+    user_message = data.get("input") or data.get("parameters", {}).get("input")
+    
+    # Converte para string e limpa espaços (evita NoneType error)
+    user_message = str(user_message or "").strip()
+    print(f"--- [DEBUG] MENSAGEM EXTRAIDA: '{user_message}' ---")
 
     if not user_message:
-        return jsonify({"response": "Erro: Campo 'input' não encontrado."}), 400
+        print("--- [ALERTA] Input vazio detectado! Verifique o mapeamento no Watson Assistant ---")
+        return jsonify({"response": "Erro: O Webhook recebeu um texto vazio. Verifique o mapeamento no Watson."}), 200
 
     try:
-        # 1. Autenticação IAM
+        # 2. AUTENTICAÇÃO IAM
         iam_res = requests.post(
             "https://iam.cloud.ibm.com/identity/token", 
             data={"grant_type": "urn:ibm:params:oauth:grant-type:apikey", "apikey": API_KEY},
@@ -35,25 +41,46 @@ def webhook_route():
         iam_res.raise_for_status()
         access_token = iam_res.json().get("access_token")
 
-        # 2. Chamada WatsonX
+        # 3. CHAMADA WATSONX (Formato Exato do seu Deployment)
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        payload = {"messages": [{"role": "user", "content": user_message}]}
+        
+        # Usando role vazia conforme o exemplo de sucesso do seu Prompt Lab
+        payload = {
+            "messages": [
+                {
+                    "role": "", 
+                    "content": user_message
+                }
+            ]
+        }
+        
+        print(f"--- [DEBUG] ENVIANDO PARA IBM: {payload} ---")
 
         response = requests.post(URL_WATSONX, headers=headers, json=payload)
         result = response.json()
         
-        # 3. Extração da resposta (simplificada)
-        assistant_reply = result.get('choices', [{}])[0].get('message', {}).get('content', "Sem resposta.")
+        print(f"--- [DEBUG] RESPOSTA BRUTA DA IBM: {result} ---")
+
+        # 4. EXTRAÇÃO DA RESPOSTA
+        # Ajustado para procurar em 'choices' (padrão OpenAI/WatsonX moderno) ou 'messages'
+        assistant_reply = ""
+        if 'choices' in result:
+            assistant_reply = result['choices'][0]['message']['content']
+        elif 'messages' in result:
+            assistant_reply = result['messages'][0]['content']
+        else:
+            assistant_reply = str(result)
+
+        print(f"--- [DEBUG] RESPOSTA FINAL FORMATADA: {assistant_reply} ---")
 
         return jsonify({
             "response": assistant_reply,
-            "context": context + [{"role": "assistant", "content": assistant_reply}]
+            "context": [{"role": "assistant", "content": assistant_reply}]
         })
 
     except Exception as e:
-        return jsonify({"response": f"Erro interno: {str(e)}"}), 500
+        print(f"--- [ERRO CRÍTICO]: {str(e)} ---")
+        return jsonify({"response": f"Erro interno: {str(e)}"}), 200
 
 if __name__ == "__main__":
-    # Importante para deploy local e reconhecimento de porta
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000)
