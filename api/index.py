@@ -72,16 +72,19 @@ def webhook_route():
         }
 
         response = requests.post(URL_WATSONX, headers=headers, json=payload)
+# ... (depois de response = requests.post)
         result = response.json()
         
-        # Extração da resposta
-        assistant_reply = ""
+        # Se a IBM responder algo que não entendemos, mostramos o JSON inteiro
         if 'choices' in result:
             assistant_reply = result['choices'][0]['message']['content']
+        elif 'results' in result:
+            assistant_reply = result['results'][0]['generated_text']
         elif 'messages' in result:
             assistant_reply = result['messages'][0]['content']
         else:
-            assistant_reply = "Não foi possível extrair a resposta do WatsonX."
+            # ESTE É O PONTO CHAVE: Mostra o que a IBM realmente mandou
+            assistant_reply = f"ERRO DE FORMATO IBM: {str(result)}"
 
         return jsonify({"response": assistant_reply})
 
