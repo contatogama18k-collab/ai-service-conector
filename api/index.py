@@ -17,6 +17,11 @@ def webhook_route():
 
     # Pega o JSON de forma bruta
     data = request.get_json(force=True, silent=True) or {}
+
+    # 2. DEBUG AGRESSIVO: Vamos ver como o Watson está enviando os dados
+    # Isso vai aparecer nos logs da Vercel e na resposta caso dê erro
+    debug_info = f"Chaves recebidas: {list(data.keys())} | Payload: {str(data)[:500]}"
+    print(f"--- [DEBUG COMPLETO] --- {debug_info}")
     
     # --- BUSCA EXAUSTIVA PELO INPUT ---
     # Tenta em todos os lugares que o Watson costuma esconder o texto
@@ -37,6 +42,13 @@ def webhook_route():
 
     if not user_message:
         return jsonify({"response": "Erro: O Webhook não encontrou o campo 'input'. Verifique o mapeamento no Watson Assistant."}), 200
+
+    # Se o input estiver vazio, retornamos o debug direto para o Watson ver
+    if not user_message or str(user_message).strip() == "":
+        return jsonify({
+            "response": f"Erro: Input vazio. Debug do que chegou: {debug_info}"
+        }), 200
+    
 
     try:
         # Autenticação IBM
