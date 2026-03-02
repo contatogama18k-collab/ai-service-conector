@@ -54,21 +54,26 @@ def webhook_route():
         }
 
         response = requests.post(URL_WATSONX, headers=headers, json=payload)
+# ... (depois do response = requests.post) ...
         result = response.json()
         
-        # Extração da resposta
+        # DEBUG: Se der erro, vamos devolver o JSON bruto da IBM para ler no Watson
+        if response.status_code != 200:
+            return jsonify({"response": f"Erro na IBM (Status {response.status_code}): {str(result)}"}), 200
+
+        # Tenta extrair a resposta de vários formatos possíveis do WatsonX
         assistant_reply = ""
-        if 'choices' in result:
-            assistant_reply = result['choices'][0]['message']['content']
-        elif 'messages' in result:
-            assistant_reply = result['messages'][0]['content']
-        else:
-            assistant_reply = "Não foi possível extrair a resposta do WatsonX."
+        try:
+            if 'choices' in result:
+                assistant_reply = result['choices'][0]['message']['content']
+            elif 'results' in result: # Alguns modelos WatsonX usam 'results'
+                assistant_reply = result['results'][0]['generated_text']
+            elif 'messages' in result:
+                assistant_reply = result['messages'][0]['content']
+            else:
+                # Se não achou nenhum campo conhecido, mostra o JSON para a gente debugar
+                assistant_reply = f"Formato inesperado da IBM: {str(result)[:200]}"
+        except Exception as e:
+            assistant_reply = f"Erro ao processar JSON da IBM: {str(e)}"
 
         return jsonify({"response": assistant_reply})
-
-    except Exception as e:
-        return jsonify({"response": f"Erro interno no conector: {str(e)}"}), 200
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
