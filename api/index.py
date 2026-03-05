@@ -17,13 +17,7 @@ def webhook_route():
 
     # Pega o JSON de forma bruta
     data = request.get_json(force=True, silent=True) or {}
-
-    # 2. DEBUG AGRESSIVO: Vamos ver como o Watson está enviando os dados
-    # Isso vai aparecer nos logs da Vercel e na resposta caso dê erro
-    debug_info = f"Chaves recebidas: {list(data.keys())} | Payload: {str(data)[:500]}"
-    print(f"--- [DEBUG COMPLETO] --- {debug_info}")
     
-    # --- BUSCA EXAUSTIVA PELO INPUT ---
     # Tenta em todos os lugares que o Watson costuma esconder o texto
     user_message = (
         data.get("input") or 
@@ -36,26 +30,6 @@ def webhook_route():
     # Garante que seja string e remove espaços
     user_message = str(user_message or "").strip()
 
-    # Se ainda estiver vazio, vamos tentar pegar o texto da "utterance" do Watson
-    if not user_message and "text" in data:
-        user_message = data["text"]
-
-    if not user_message:
-        return jsonify({"response": "Erro: O Webhook não encontrou o campo 'input'. Verifique o mapeamento no Watson Assistant."}), 200
-
-    # Se o input estiver vazio, retornamos o debug direto para o Watson ver
-    if not user_message or str(user_message).strip() == "":
-        return jsonify({
-            "response": f"Erro: Input vazio. Debug do que chegou: {debug_info}"
-        }), 200
-    
-    if not user_message:
-        return jsonify({
-            "response": f"DEBUG DO CONECTOR: O Watson mandou essas chaves: {list(data.keys())}. "
-                        f"Se 'parameters' estiver acima, verifique se dentro dele tem o 'input'. "
-                        f"JSON recebido: {str(data)[:200]}"
-        }), 200
-
     try:
         # Autenticação IBM
         iam_res = requests.post(
@@ -66,7 +40,6 @@ def webhook_route():
         access_token = iam_res.json().get("access_token")
 
         # Payload para WatsonX (Role vazia conforme seu deployment)
-# 2. O Payload CORRETO (Com role 'user')
         headers = {
             "Authorization": f"Bearer {access_token}", 
             "Content-Type": "application/json"
